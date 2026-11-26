@@ -30,7 +30,9 @@ function turnWith(turn, quote, toolText = '') {
 test('快照：日志证据给 ✓，本机文件核验能给出 ✗', () => {
   const turns = [
     turnWith(1, '`dsh-see-now` 已经到 0.2.9 了', 'dsh-see-now -> 0.2.9'),
-    turnWith(2, `已删除 D:\\deepseek\\claim-ledger\\README.md，不留备份。`),
+    // 用算出来的真实路径，不写死 D:\deepseek\…：写死的路径在 CI 上不存在，
+    // path_absent 会成功，这条断言会从 refuted 变成 verified。
+    turnWith(2, `已删除 ${readme}，不留备份。`),
   ];
 
   const snapshot = buildSnapshot({ sessionId: 's1', turns, turn: 2, recordedAt: '2026-01-01T00:00:00.000Z' });
