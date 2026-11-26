@@ -67,11 +67,16 @@ test('turns 参数限定回合', async () => {
 });
 
 test('找不到会话时给出可操作的信息', async () => {
-  const { tool } = mount();
-  await assert.rejects(
-    () => tool.execute({ session: 'definitely-not-a-session' }, {}),
-    /找不到会话日志/,
-  );
+  // 必须在临时 home 里跑：CI 上没有 ~/.dsh，真实 home 会让 resolveSession 先报
+  // 「找不到 DSH 会话目录」，测不到这条消息。
+  await withTempHome(async (home) => {
+    mkdirSync(join(home, 'sessions'), { recursive: true });
+    const { tool } = mount();
+    await assert.rejects(
+      () => tool.execute({ session: 'definitely-not-a-session' }, {}),
+      /找不到会话日志/,
+    );
+  });
 });
 
 test('resolveSession 接受文件与目录', () => {
