@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "断言台账",
+    "description": "把会话里的完成性断言对回工具输出与只读现场核验，判定为 verified / refuted / unverifiable。只记账，不拦截任何回合。",
+    "detail": "docs/DETAIL.md"
+  }
+}

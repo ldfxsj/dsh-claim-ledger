@@ -1,0 +1,12 @@
+{
+  "`dsh-see-now` 版本 0.2.9，npm 上核实过。": {
+    "type": "npm_version",
+    "package": "dsh-see-now",
+    "expect": "0.2.9"
+  },
+  "`dsh-talk-map` 版本 0.5.9，npm 上核实过。": {
+    "type": "npm_version",
+    "package": "dsh-talk-map",
+    "expect": "0.5.9"
+  }
+}

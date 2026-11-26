@@ -1,0 +1,69 @@
+{
+  "name": "dsh-claim-ledger",
+  "version": "0.6.0",
+  "private": true,
+  "type": "module",
+  "description": "断言台账：把完成性断言映射到可执行证据，分成 verified / refuted / unverifiable 三类，只记账不拦截。",
+  "license": "MIT",
+  "author": "liushijie",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ldfxsj/dsh-claim-ledger.git"
+  },
+  "homepage": "https://github.com/ldfxsj/dsh-claim-ledger#readme",
+  "bugs": {
+    "url": "https://github.com/ldfxsj/dsh-claim-ledger/issues"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-bundle",
+    "claims",
+    "evidence",
+    "audit"
+  ],
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cli.mjs",
+    "cordis.patch.yml",
+    "src",
+    "test",
+    "samples",
+    "locale/*.json",
+    "docs",
+    "icon.svg",
+    "LICENSE",
+    "CHANGELOG.md",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.19.0",
+    "zod": "^4.0.0"
+  },
+  "scripts": {
+    "test": "node --test test/ledger.test.mjs test/plugin.test.mjs test/session.test.mjs test/auto.test.mjs test/trends.test.mjs test/encoding.test.mjs test/store.test.mjs test/coverage.test.mjs test/projection.test.mjs",
+    "audit": "node cli.mjs audit",
+    "trends": "node cli.mjs trends"
+  },
+  "engines": {
+    "node": ">=22.15"
+  }
+}

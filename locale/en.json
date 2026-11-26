@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Claim ledger",
+    "description": "Audits a session's completion claims against its tool output and read-only live checks, with verified / refuted / unverifiable verdicts. Records only; never blocks a turn.",
+    "detail": "docs/DETAIL.md"
+  }
+}

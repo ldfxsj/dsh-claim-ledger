@@ -1,0 +1,7 @@
+node_modules/
+.tmp-smoke/
+.tmp-*.mjs
+*.log
+*.blend1
+.DS_Store
+Thumbs.db
