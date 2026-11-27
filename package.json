@@ -39,6 +39,7 @@
     "icon.svg",
     "LICENSE",
     "CHANGELOG.md",
+    "SECURITY.md",
     "README.md"
   ],
   "dsh": {
@@ -54,8 +55,8 @@
     }
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "^3.19.0",
-    "zod": "^4.0.0"
+    "@deepseek-ai/schemastery": "3.19.0",
+    "zod": "4.6.7"
   },
   "scripts": {
     "test": "node --test test/ledger.test.mjs test/plugin.test.mjs test/session.test.mjs test/auto.test.mjs test/trends.test.mjs test/encoding.test.mjs test/store.test.mjs test/coverage.test.mjs test/projection.test.mjs",

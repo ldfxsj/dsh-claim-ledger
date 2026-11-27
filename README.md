@@ -372,6 +372,12 @@ docs/preview.svg    工具输出的真实渲染（由 .tmp 脚本从 audit 结�
 locale/{en,zh}.json 展示元数据
 icon.svg            64×64 图标
 cordis.patch.yml    插入条目 include:claim-ledger
-LICENSE / CHANGELOG.md
+LICENSE / CHANGELOG.md / SECURITY.md
 ```
+
+## 安全与能力披露
+
+它读文件、读环境变量，`live: 'all'` 时还能起子进程——这些能力都是必需的，但**必需不等于无所谓**。每一条用在哪、能碰到什么、碰不到什么，都写在 [SECURITY.md](SECURITY.md) 里。
+
+分析平台（Socket 之类）会把「读文件 / 读环境变量 / 起子进程 / 出现 URL 字符串」通通标成告警。那是**能力披露，不是漏洞**：一个要做核验的插件不可能既读文件又不触发它们。该看的是那张表——能力在不在、默认开没开、能不能被滥用；删功能能把分数做成 100，但那是把工具做没了。
 
