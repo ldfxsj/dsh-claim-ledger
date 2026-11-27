@@ -124,6 +124,25 @@ const EXISTS_HINT = /已(创建|写入|落盘|保存)|写好了/;
 // “成品在 X”“备份在 X”“另存了一份在 X”——存在性断言。用词表保守，宁可漏判。
 const EXISTS_WORD = /成品|产物|备份|保留在|另存|保存在|写到了|落在/;
 
+// 路径后面紧跟这些字，说明它是**范围**（「D:\x 下」），不是被删掉的那个东西。
+// 允许中间夹着反引号/空格：「`D:\x` 下」。
+const SCOPE_AFTER = /^[\s`"'“”‘’]*(?:下|里|中|内)/;
+
+/**
+ * 「清理情况：… 全部删掉了，`D:\deepseek` 下已经没有 `.tmp-*` 残留。」
+ * 这里的 `D:\deepseek` 是范围，被删的是那几个通配名——拿「D:\deepseek 存不存在」去推翻，
+ * 是把动作挂到了错误的宾语上（2026-11-27 在面板上被截图抓到的那条假 ✗）。
+ */
+export function scopeOnlyTarget(claim) {
+  if (!ABSENT_HINT.test(claim.quote)) return null;
+  const path = claim.tokens.find((t) => t.kind === 'path' && !t.elided);
+  if (!path) return null;
+  const at = claim.quote.indexOf(path.value);
+  if (at < 0) return null;
+  if (!SCOPE_AFTER.test(claim.quote.slice(at + path.value.length))) return null;
+  return path;
+}
+
 // “我装不了 / 跑不通 / 失败了”——否认类断言。token 出现在输出里只能证明那个名词存在，
 // 证明不了「做不到」，所以这种句子不能靠日志证据升级。
 // 只认第一人称/无主语的不可能式；「失败后逼它换方法」这种把“失败”当名词的描述不算。
@@ -171,7 +190,11 @@ export function writeCallsFor(pathValue, pool, claimTurn) {
 function autoCheck(claim) {
   const path = claim.tokens.find((t) => t.kind === 'path' && !t.elided);
   if (!path) return null;
-  if (ABSENT_HINT.test(claim.quote)) return { type: 'path_absent', path: path.value };
+  if (ABSENT_HINT.test(claim.quote)) {
+    // 范围不是对象：`D:\x` 后面跟「下/里/中」时不跑 path_absent，交给 scopeOnlyTarget 说明原因。
+    if (scopeOnlyTarget(claim)) return null;
+    return { type: 'path_absent', path: path.value };
+  }
   if (EXISTS_HINT.test(claim.quote) || EXISTS_WORD.test(claim.quote)) {
     return { type: 'path_exists', path: path.value };
   }
@@ -331,9 +354,16 @@ function ingestTurn(state, turn, { live = false, checks = {}, stance = null, onl
 
       const curated = curatedFor(claim.quote, checks);
       const writeTarget = writeTargetOf(claim);
+      const scopeOnly = curated || writeTarget ? null : scopeOnlyTarget(claim);
       // 写文件类断言不走通用的存在性核验：光「文件在」证明不了「我写的、而且没写坏」。
-      const planned = curated ?? (writeTarget ? null : autoCheck(claim));
+      const planned = curated ?? (writeTarget || scopeOnly ? null : autoCheck(claim));
       const source = curated ? 'curated' : planned ? 'auto' : null;
+
+      if (scopeOnly) {
+        verdict = UNVERIFIABLE;
+        grade = 'none';
+        note = `「${scopeOnly.value}」在这句里是范围（后面跟「下/里/中」），不是被删掉的对象；删除对象是通配名或相对名，没有一条具体路径可核验`;
+      }
 
       const wantAll = live === true || live === 'all';
       const wantLocal = live === 'local' || wantAll;
@@ -416,7 +446,7 @@ function ingestTurn(state, turn, { live = false, checks = {}, stance = null, onl
 
       // 探针：没有自动核验动作、也没有日志证据时，对本机路径做一次「只认存在、不认不存在」的检查。
       // 存在 → 至少能升到 verified（只证明路径在，不证明句中其它说法）；不存在 → 留 ?，不记推翻。
-      if (!planned && !writeTarget && verdict !== VERIFIED && wantLocal && !NEGATIVE.test(claim.quote)) {
+      if (!planned && !writeTarget && !scopeOnly && verdict !== VERIFIED && wantLocal && !NEGATIVE.test(claim.quote)) {
         const pathToken = claim.tokens.find((t) => t.kind === 'path' && !t.elided);
         if (pathToken && !insideMarkdownLink(claim.quote, pathToken.value)) {
           const r = runCheck({ type: 'path_exists', path: pathToken.value });

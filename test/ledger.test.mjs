@@ -396,3 +396,34 @@ test('覆盖率：表格末尾给出句子数、可查比例与未取证的例�
   assert.match(text, /t3 README 里也写好了这一节/);
 });
 
+test('删除类：路径只是范围（后面跟「下」）时不拿它去判存在', () => {
+  const text =
+    '清理情况：`.tmp-ghauth.*`、`.tmp-phone-release.md`、`.tmp-probe.mjs`、`.tmp-registry.json`（18.8 MB 的快照）全部删掉了，`D:\\deepseek` 下已经没有 `.tmp-*` 残留。';
+  const s = session([assistant(1, 1, text)]);
+  const r = audit({ turns: s.turns, live: 'local' });
+  const row = r.claims.find((c) => c.quote.includes('.tmp-ghauth'));
+  assert.ok(row, '这句应该进表');
+  assert.equal(row.verdict, 'unverifiable');
+  assert.match(row.note, /是范围/);
+  assert.equal(r.summary.refuted, 0);
+});
+
+test('删除类：具体文件声明已删但还在 → 仍然判被推翻（回归）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'scope-'));
+  const file = join(dir, 'gone.md');
+  writeFileSync(file, 'still here');
+  const s = session([assistant(1, 1, `已删除 ${file}，不留备份。`)]);
+  const r = audit({ turns: s.turns, live: 'local' });
+  assert.equal(r.claims.length, 1);
+  assert.equal(r.claims[0].verdict, 'refuted');
+  assert.match(r.claims[0].note, /仍然存在/);
+});
+
+test('删除类：范围句即使目录存在也不升成 verified', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'scope-'));
+  const s = session([assistant(1, 1, `已清理 ${dir} 下的临时文件，全部删掉了。`)]);
+  const r = audit({ turns: s.turns, live: 'local' });
+  assert.equal(r.claims.length, 1);
+  assert.equal(r.claims[0].verdict, 'unverifiable');
+});
+

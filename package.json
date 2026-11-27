@@ -1,6 +1,6 @@
 {
   "name": "dsh-claim-ledger",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "type": "module",
   "description": "断言台账：把完成性断言映射到可执行证据，分成 verified / refuted / unverifiable 三类，只记账不拦截。",
   "license": "MIT",
