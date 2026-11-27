@@ -89,8 +89,15 @@ export function writeTargetOf(claim) {
 }
 
 export function writeCallsFor(pathValue, pool, claimTurn) {
+  // Windows 路径不区分大小写：断言写 D:\x\A、入参是 D:\x\a 也算同一条路径。
+  const needle = typeof pathValue === 'string' ? pathValue.toLowerCase() : pathValue;
   return pool.filter(
-    (t) => t.kind === 'call' && WRITE_TOOLS.has(t.name) && t.turn <= claimTurn && t.argsText.includes(pathValue),
+    (t) =>
+      t.kind === 'call' &&
+      WRITE_TOOLS.has(t.name) &&
+      t.turn <= claimTurn &&
+      typeof t.argsText === 'string' &&
+      t.argsText.toLowerCase().includes(needle),
   );
 }
 

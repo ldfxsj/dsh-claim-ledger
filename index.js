@@ -261,6 +261,8 @@ export function apply(ctx, config) {
       turn: turnOf(event),
       turns: tail.turns(id),
     });
+    // turns 数组已经把这一批回合握在手里了，内存里更早的分组结果可以丢掉。
+    tail.trim(id);
   }
 
   let offSession = null;

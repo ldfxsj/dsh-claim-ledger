@@ -11,6 +11,14 @@ import { createGrouper } from './session.mjs';
 export function createTail() {
   const sessions = new Map();
 
+  /**
+   * 原始事件数组只是「还没分组前的暂存」，分组后的回合才是下游要的东西，
+   * 所以它不需要留全程：长会话里每轮原文都在这里再存一遍，等于双份内存。
+   */
+  const MAX_EVENTS = 1000;
+  /** 交给下游之后，更早的回合就可以从内存里丢掉（台账本身已经记住它们）。 */
+  const MAX_TURNS = 400;
+
   function state(id) {
     let s = sessions.get(id);
     if (!s) {
@@ -28,6 +36,7 @@ export function createTail() {
       s.seqs.add(seq);
     }
     s.events.push(event);
+    if (s.events.length > MAX_EVENTS) s.events.splice(0, s.events.length - MAX_EVENTS);
     s.grouper.apply(event);
   }
 
@@ -52,6 +61,18 @@ export function createTail() {
     },
     size(id) {
       return state(id).events.length;
+    },
+    /**
+     * 丢掉早于最近 keepTurns 个回合的分组结果。
+     * 只在「这些回合已经作为数组交给记账/投影」之后调用——调用方手里那份数组仍然完整。
+     */
+    trim(id, keepTurns = MAX_TURNS) {
+      const s = sessions.get(id);
+      if (!s) return 0;
+      const turns = s.grouper.turns();
+      if (turns.length <= keepTurns) return 0;
+      const through = turns[turns.length - keepTurns - 1].turn;
+      return s.grouper.dropThrough(through);
     },
     forget(id) {
       sessions.delete(id);

@@ -59,7 +59,7 @@
     "zod": "4.6.7"
   },
   "scripts": {
-    "test": "node --test test/ledger.test.mjs test/plugin.test.mjs test/session.test.mjs test/auto.test.mjs test/trends.test.mjs test/encoding.test.mjs test/store.test.mjs test/coverage.test.mjs test/projection.test.mjs",
+    "test": "node --test test/ledger.test.mjs test/plugin.test.mjs test/session.test.mjs test/auto.test.mjs test/trends.test.mjs test/encoding.test.mjs test/store.test.mjs test/coverage.test.mjs test/projection.test.mjs test/fixes.test.mjs",
     "audit": "node cli.mjs audit",
     "trends": "node cli.mjs trends"
   },

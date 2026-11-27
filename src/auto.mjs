@@ -132,7 +132,8 @@ export function createRecorder({
     schedule(job) {
       if (disposed || !job?.sessionId) return;
       const pending = timers.get(job.sessionId);
-      if (pending) clearTimeout(pending);
+      if (pending) clearTimeout(pending.timer);
+      const entry = { timer: null, job };
       const timer = setTimeout(() => {
         timers.delete(job.sessionId);
         try {
@@ -142,7 +143,8 @@ export function createRecorder({
         }
       }, debounceMs);
       timer.unref?.();
-      timers.set(job.sessionId, timer);
+      entry.timer = timer;
+      timers.set(job.sessionId, entry);
     },
     /** 测试用：立刻跑一次，不等抖动窗口。 */
     recordNow(job) {
@@ -162,14 +164,26 @@ export function createRecorder({
       files.delete(sessionId);
       // 共享 store 时不能在这里清：投影还在读同一个会话的台账
       if (ownStore) liveStore.forget(sessionId);
-      const timer = timers.get(sessionId);
-      if (timer) clearTimeout(timer);
+      const entry = timers.get(sessionId);
+      if (entry) clearTimeout(entry.timer);
       timers.delete(sessionId);
     },
+    /**
+     * 卸载时把已经排上队的回合冲刷掉再走。
+     * 以前只 clearTimeout：turn/end 之后 250 ms 内重载/关闭插件，那一回合的快照与 journal 就没了。
+     */
     dispose() {
       disposed = true;
-      for (const timer of timers.values()) clearTimeout(timer);
+      const leftover = [...timers.values()];
       timers.clear();
+      for (const entry of leftover) {
+        clearTimeout(entry.timer);
+        try {
+          record(entry.job);
+        } catch (error) {
+          noteError(`记账失败（卸载冲刷）session=${entry.job?.sessionId ?? '?'} turn=${entry.job?.turn ?? '?'}: ${error?.message ?? error}`, { dir, now });
+        }
+      }
       files.clear();
       if (ownStore) liveStore.dispose();
     },

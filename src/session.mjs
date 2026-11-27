@@ -96,11 +96,24 @@ export function createGrouper() {
   let dirty = true;
   let cached = [];
 
+  // callId → 名字/入参 只是查表用的旁路缓存；长会话里它也会一直涨，所以有个软上限。
+  const MAX_CALLS = 4000;
+
   function ensure(n) {
     if (!byTurn.has(n)) {
       byTurn.set(n, { turn: n, assistant: [], tools: [], calls: [], ended: false, endReason: null });
     }
     return byTurn.get(n);
+  }
+
+  function rememberCall(callId, name, args) {
+    callNames.set(callId, name);
+    callArgs.set(callId, args);
+    if (callNames.size > MAX_CALLS) {
+      const oldest = callNames.keys().next().value;
+      callNames.delete(oldest);
+      callArgs.delete(oldest);
+    }
   }
 
   function apply(e) {
@@ -118,10 +131,7 @@ export function createGrouper() {
       const callId = e.data.callId ?? null;
       const name = e.data.name ?? 'unknown';
       const args = argsText(e.data.arguments);
-      if (callId) {
-        callNames.set(callId, name);
-        callArgs.set(callId, args);
-      }
+      if (callId) rememberCall(callId, name, args);
       rec.calls.push({ callId, name, argsText: args });
       return;
     }
@@ -148,6 +158,22 @@ export function createGrouper() {
         dirty = false;
       }
       return cached;
+    },
+    /**
+     * 丢掉 ≤ turn 的回合。只在「这些回合已经交给下游处理」之后调用——
+     * 长会话里 byTurn 会把每一轮的原文都留在内存里，没有上限就是泄漏。
+     */
+    dropThrough(turn) {
+      if (typeof turn !== 'number') return 0;
+      let dropped = 0;
+      for (const key of byTurn.keys()) {
+        if (key <= turn) {
+          byTurn.delete(key);
+          dropped += 1;
+        }
+      }
+      if (dropped) dirty = true;
+      return dropped;
     },
   };
 }

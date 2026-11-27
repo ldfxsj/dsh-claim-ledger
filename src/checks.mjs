@@ -1,5 +1,41 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from 'node:fs';
+
+/**
+ * 核验一个文件时最多读这么多字节。
+ * 一条断言可以指向任意路径——包括 GB 级的日志或镜像；整读会把宿主主线程卡死甚至 OOM。
+ * 超过上限只读开头一段，并在 detail 里如实写明「只核验了前 N 字节」。
+ */
+const MAX_READ = 2 * 1024 * 1024;
+
+/** 读文件，但截到 MAX_READ。返回 { buf, size, truncated }。 */
+function readCapped(path, max = MAX_READ) {
+  const size = statSync(path).size;
+  if (size <= max) return { buf: readFileSync(path), size, truncated: false };
+  const fd = openSync(path, 'r');
+  try {
+    const buf = Buffer.alloc(max);
+    const n = readSync(fd, buf, 0, max, 0);
+    return { buf: buf.subarray(0, n), size, truncated: true };
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** 严格解码；被截断的尾巴可能切在多字节字符中间，最多往回退 3 字节再试。 */
+function decodeStrict(buf, truncated) {
+  const attempts = truncated ? [0, 1, 2, 3] : [0];
+  for (const drop of attempts) {
+    const slice = drop ? buf.subarray(0, buf.length - drop) : buf;
+    try {
+      return { text: new TextDecoder('utf-8', { fatal: true }).decode(slice), ok: true };
+    } catch {
+      // 再退一个字节
+    }
+  }
+  return { text: buf.toString('utf8'), ok: false };
+}
+
 
 /**
  * 核验器的封闭词表。断言文本本身永远不被执行——只有这里列出的形状能变成动作。
@@ -57,16 +93,23 @@ export const CHECKS = {
 
   file_contains({ path, pattern }) {
     if (!existsSync(path)) return { crash: `文件不存在，无法核验内容：${path}` };
-    const text = readFileSync(path, 'utf8');
+    let read;
+    try {
+      read = readCapped(path);
+    } catch (err) {
+      return { crash: `读不了文件：${String(err?.message ?? err)}` };
+    }
+    const text = read.truncated ? decodeStrict(read.buf, true).text : read.buf.toString('utf8');
     let re;
     try {
       re = new RegExp(pattern, 'm');
     } catch (err) {
       return { crash: `正则无效：${String(err.message ?? err)}` };
     }
+    const note = read.truncated ? `（文件 ${read.size} 字节，只读了前 ${read.buf.length} 字节）` : '';
     return re.test(text)
-      ? { ok: true, detail: `${path} 命中 /${pattern}/` }
-      : { ok: false, detail: `${path} 未命中 /${pattern}/` };
+      ? { ok: true, detail: `${path} 命中 /${pattern}/${note}` }
+      : { ok: false, detail: `${path} 未命中 /${pattern}/${note}` };
   },
 
   /**
@@ -76,21 +119,23 @@ export const CHECKS = {
    */
   file_clean({ path }) {
     if (!existsSync(path)) return { crash: `文件不存在，无法核验健康度：${path}` };
-    const buf = readFileSync(path);
+    let read;
+    try {
+      read = readCapped(path);
+    } catch (err) {
+      return { crash: `读不了文件：${String(err?.message ?? err)}` };
+    }
+    const { buf } = read;
     const problems = [];
     if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) problems.push('有 UTF-8 BOM');
-    let text = '';
-    try {
-      text = new TextDecoder('utf-8', { fatal: true }).decode(buf);
-    } catch {
-      problems.push('不是合法 UTF-8');
-      text = buf.toString('utf8');
-    }
-    const bad = (text.match(/\uFFFD/g) ?? []).length;
+    const decoded = decodeStrict(buf, read.truncated);
+    if (!decoded.ok) problems.push('不是合法 UTF-8');
+    const bad = (decoded.text.match(/\uFFFD/g) ?? []).length;
     if (bad) problems.push(`含 ${bad} 个替换字符 U+FFFD`);
+    const note = read.truncated ? `（文件 ${read.size} 字节，只检查了前 ${buf.length} 字节）` : '';
     return problems.length
-      ? { ok: false, detail: `${path} 内容不干净：${problems.join('、')}` }
-      : { ok: true, detail: `${path} 是干净 UTF-8（无 BOM、无替换字符）` };
+      ? { ok: false, detail: `${path} 内容不干净：${problems.join('、')}${note}` }
+      : { ok: true, detail: `${path} 是干净 UTF-8（无 BOM、无替换字符）${note}` };
   },
 
   npm_version({ package: pkg, expect, timeoutMs }) {
