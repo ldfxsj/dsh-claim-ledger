@@ -93,10 +93,25 @@ const DONE_RE =
 
 /** 「跑通了再谈扩展」是计划不是事实；覆盖率不该把条件句算成完成性断言。 */
 const PLAN_RE =
-  /如果|假如|要是|再谈|准备|打算|待|以后|下次|明天|下周|需要|应该|可以|建议|要不要|是否|计划|能不能|能否|例如|比如|所谓|意思是|这类/;
+  /如果|假如|要是|再谈|准备|打算|待|以后|下次|明天|下周|需要|应该|可以|建议|要不要|是否|计划|能不能|能否|例如|比如|所谓|意思是|这类|(?:通过|完成|跑通|搞定|写好|做完)(?:之后|后)/;
 
 /** 「已装的 X」「作者自己迁移了」不是我在报功——第三人称主语与定语都不算。 */
 const OTHER_SUBJECT_RE = /作者|他们|她们|别人|用户|你/;
+
+/**
+ * 「跑通了 / 通过了 / 全绿」这类断言没有路径也没有版本号，以前根本进不了表：
+ * 它们没有 token，覆盖率只记成「测不到」。但这类句子其实有机械把手——
+ * 同一回合的**工具输出**里有没有成功标志（`10 passed`、`0 failed`、`全绿`…）。
+ * 只匹配「测试/验证/构建 + 通过/成功」这种组合，以及句末的「跑通了 / 通过了」，
+ * 免得把「通过调用工具」里的「通过」当成断言。
+ */
+export const RUN_RE =
+  /(?:测试|验证|验收|编译|构建|CI|单测|用例|回归|检查)[^。；，]{0,10}?(?:通过|跑通|全绿|成功)|(?:跑通|通过|测过|验过|全绿)了/;
+
+export function looksLikeRun(sentence) {
+  return RUN_RE.test(unquoted(sentence));
+}
+
 
 export function doneSentences(text) {
   return sentencesOf(text).filter((sentence) => {
@@ -114,7 +129,11 @@ export function extractClaims(turn) {
       if (block.type !== 'text') continue;
       for (const sentence of sentencesOf(block.text)) {
         const tokens = tokensOf(sentence);
-        if (!tokens.length) continue;
+        const run = looksLikeRun(sentence);
+        // 没有 token 的「跑通了」只有在像行动自述时才收：它靠同回合输出里的成功标志取证。
+        // 「跑通了再谈扩展」这类条件句不是事实，不收。
+        const runnable = !tokens.length && run && !PLAN_RE.test(unquoted(sentence)) && stanceOf(sentence) === 'action';
+        if (!tokens.length && !runnable) continue;
         if (seen.has(sentence)) continue;
         seen.add(sentence);
         claims.push({
@@ -123,8 +142,10 @@ export function extractClaims(turn) {
           step: ev.data?.step ?? null,
           quote: sentence,
           tokens,
-          kind: tokens[0].kind,
+          kind: tokens[0]?.kind ?? 'run',
           stance: stanceOf(sentence),
+          run,
+          runnable,
         });
       }
     }

@@ -1,4 +1,4 @@
-import { doneSentences, extractClaims, tokensOf } from './extract.mjs';
+import { doneSentences, extractClaims, looksLikeRun, tokensOf } from './extract.mjs';
 import { describeCheck, runCheck } from './checks.mjs';
 
 export const VERIFIED = 'verified';
@@ -6,6 +6,73 @@ export const REFUTED = 'refuted';
 export const UNVERIFIABLE = 'unverifiable';
 
 const normNumber = (v) => v.replace(/[,，\s]/g, '');
+
+/**
+ * 「跑通了」类断言的证据通道：同一回合的工具输出里有没有成败标志。
+ *
+ * 判定刻意保守——
+ *   · 明确写了「N failed」且 N > 0  → refuted（哪怕同一份输出里也有 passed）
+ *   · 有成功标志且这份输出里没有失败字样 → verified·tool
+ *   · 只有失败字样、没有成功标志 → 不推翻，留 ?（`error` 太常见，不能见字眼就判死）
+ * 之所以单独立一套，是因为这类句子没有路径/版本号，字符串 grounding 帮不上忙。
+ */
+const PASS_HINT =
+  /(?:\b\d+\s+passed\b)|(?:\ball\s+tests?\s+passed\b)|(?:\b0\s+failed\b)|(?:\bPASS(?:ED)?\b)|(?:✓)|(?:全绿)|(?:全部通过)|(?:测试通过)|(?:\bbuild\s+succeeded\b)|(?:\bsuccess(?:ful)?\b)/i;
+const FAIL_HINT = /(?:\bFAIL(?:ED|URE)?\b)|(?:\bnot ok\b)|(?:失败)|(?:错误)|(?:error)/i;
+const FAILED_COUNT = /(\d+)\s+(?:tests?\s+)?(?:failed|failing)/i;
+
+/**
+ * 只有「真的执行了东西」的工具才算成败证据。
+ * 第一版把全池都算了：结果 `compress` 的输出里一个 ✓ 就把「自动记账已经跑通了」判成了 verified——
+ * 那是纯粹的巧合，正是这类假阳性会毁了整个台账。
+ */
+const EXEC_TOOLS = new Set([
+  'pwsh',
+  'shell',
+  'bash',
+  'exec',
+  'run',
+  'run_command',
+  'command',
+  'terminal',
+  'node',
+  'npm',
+  'npx',
+  'pnpm',
+  'yarn',
+  'python',
+  'python3',
+  'git',
+]);
+
+/** 在本回合的工具输出里找成败标志。返回 { outcome, note, tool } 或 null（没有任何标志）。 */
+export function runEvidence(pool, turn) {
+  let pass = null;
+  let fail = null;
+  let failedCount = 0;
+  for (const entry of pool) {
+    if (entry.turn !== turn || typeof entry.text !== 'string') continue;
+    if (!EXEC_TOOLS.has(entry.name)) continue;
+    const text = entry.text;
+    // 「0 failed」本身是成功信号，不能因为里面有个 failed 就把整份输出判成失败。
+    const clean = text.replace(/\b0\s+(?:tests?\s+)?failed\b/gi, '');
+    const counted = FAILED_COUNT.exec(text);
+    if (counted) failedCount = Math.max(failedCount, Number(counted[1]));
+    if (!fail && FAIL_HINT.test(clean)) fail = entry;
+    if (!pass && PASS_HINT.test(clean) && !FAIL_HINT.test(clean)) pass = entry;
+  }
+  if (failedCount > 0) {
+    return { outcome: 'refuted', tool: fail?.name ?? 'tool', note: `本回合输出里有 ${failedCount} 个失败的测试` };
+  }
+  if (pass) {
+    return { outcome: 'verified', tool: pass.name ?? 'tool', note: `本回合 ${pass.name ?? '工具'} 的输出里有成功标志` };
+  }
+  if (fail) {
+    return { outcome: 'ambiguous', tool: fail.name ?? 'tool', note: '本回合输出里有失败字样，但没有明确的成功标志——不推翻也不敢记通过' };
+  }
+  return null;
+}
+
 
 /**
  * 证据池的倒排索引：池子会随着回合一直变长，而每条断言都要问「这些事实出现过吗」。
@@ -197,13 +264,20 @@ function ingestTurn(state, turn, { live = false, checks = {}, stance = null, onl
 
     if (onlyTurns && !onlyTurns.includes(turn.turn)) return;
 
-    // 覆盖率：只统计「完成性断言」，不含条件句；有 token 的才可能进台账
+    // 覆盖率：只统计「完成性断言」，不含条件句；有 token 的、或本回合输出里有成败标志的，才可能进台账
+    let runNote;
+    const runMarkers = () => {
+      if (runNote === undefined) runNote = runEvidence(evidencePool, turn.turn);
+      return runNote;
+    };
     for (const rec of turn.assistant) {
       for (const block of rec.data?.message?.content ?? []) {
         if (block.type !== 'text') continue;
         for (const sentence of doneSentences(block.text)) {
           coverage.completions += 1;
-          if (tokensOf(sentence).some((t) => !t.elided)) {
+          const hasToken = tokensOf(sentence).some((t) => !t.elided);
+          const backedByRun = !hasToken && looksLikeRun(sentence) && runMarkers() !== null;
+          if (hasToken || backedByRun) {
             coverage.backed += 1;
           } else {
             coverage.unbacked += 1;
@@ -236,9 +310,9 @@ function ingestTurn(state, turn, { live = false, checks = {}, stance = null, onl
       const earliest = evidence.reduce((m, e) => (e.evidenceTurn != null ? Math.min(m, e.evidenceTurn) : m), claim.turn);
       let note = allGrounded
         ? `工具输出包含全部 ${required.length} 个事实（证据来自 turn ${earliest}）`
-        : required.length === 0
-          ? '事实 token 被省略号截断（…），无从核验'
-          : '本会话工具输出里找不到该事实，没有可执行的核验';
+        : claim.tokens.length === 0
+          ? '这句话没有版本号/路径/数字，抓不到可核验的事实'
+          : '事实 token 被省略号截断（…），无从核验';
 
       // 否认类（“我装不了”“跑不通”）是坑：token 出现过 ≠ 做不到。
       // 不论立场都降级——一句转述「我装不了」的话同样不能用路径存在来支持。
@@ -320,6 +394,26 @@ function ingestTurn(state, turn, { live = false, checks = {}, stance = null, onl
         }
       }
 
+      // 「跑通了」类断言：没有 token 可 grounding，靠本回合工具输出里的成败标志取证。
+      if (required.length === 0 && claim.runnable && !curated && verdict !== VERIFIED && !NEGATIVE.test(claim.quote)) {
+        const found = runEvidence(evidencePool, claim.turn);
+        if (found && found.outcome === 'refuted') {
+          verdict = REFUTED;
+          grade = 'none';
+          note = found.note;
+          evidence.push({ grade: 'tool', tool: found.tool, evidenceTurn: claim.turn });
+        } else if (found && found.outcome === 'verified') {
+          verdict = VERIFIED;
+          grade = 'tool';
+          note = `${found.note}（只证明这一回合有成功标志，不证明整条链路）`;
+          evidence.push({ grade: 'tool', tool: found.tool, evidenceTurn: claim.turn });
+        } else if (found) {
+          note = found.note;
+        } else {
+          note = '本回合没有执行类工具（pwsh/shell/node…）的输出里的成败标志，测不到';
+        }
+      }
+
       // 探针：没有自动核验动作、也没有日志证据时，对本机路径做一次「只认存在、不认不存在」的检查。
       // 存在 → 至少能升到 verified（只证明路径在，不证明句中其它说法）；不存在 → 留 ?，不记推翻。
       if (!planned && !writeTarget && verdict !== VERIFIED && wantLocal && !NEGATIVE.test(claim.quote)) {
@@ -344,6 +438,7 @@ function ingestTurn(state, turn, { live = false, checks = {}, stance = null, onl
         step: claim.step,
         quote: claim.quote,
         kind: claim.kind,
+        run: Boolean(claim.run),
         stance: claim.stance,
         tokens: claim.tokens.map((t) => t.value),
         groundedCount,

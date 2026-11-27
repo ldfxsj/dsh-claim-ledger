@@ -139,7 +139,7 @@ export function renderRecorded(snapshot, { width = 110 } = {}) {
   return lines.join('\n');
 }
 
-const KIND = { version: '版本号', path: '路径', number: '数字' };
+const KIND = { version: '版本号', path: '路径', number: '数字', run: '跑通' };
 
 /** 跨会话走势：一眼看「从第几个回合开始不确定」和「哪类断言从没被核实过」。 */
 /**
